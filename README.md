@@ -1,15 +1,15 @@
 # SignalDraft
 
-SignalDraft is a polished, local-first AI inbox triage and reply drafting agent for job seekers. Paste a recruiter outreach, interview message, networking reply, or application update and the app will classify it, extract structured data, choose the safest next action, draft a response when appropriate, explain its reasoning, and route risky cases to human review.
+SignalDraft is a local-first AI inbox triage and reply drafting agent for job seekers. Paste a recruiter outreach, interview message, networking reply, or application update and the app will classify it, extract structured data, choose the safest next action, draft a response when appropriate, explain its reasoning, and route risky cases to human review.
 
 ![SignalDraft dashboard placeholder](docs/screenshots/dashboard-placeholder.svg)
 
-## Why this project is recruiter-impressive
+## Why this project matters
 
-- It solves a concrete workflow that many candidates deal with daily: recruiter replies, scheduling, assessments, and sensitive offer conversations.
-- It uses current agent tooling intentionally instead of forcing a generic chatbot pattern.
-- It stays cheap and local-first: SQLite for persistence, Streamlit for the demo UI, FastAPI for the service layer, and OpenAI as the only paid dependency.
-- It is easy to explain in an interview because the workflow is explicit, typed, and deterministic where safety matters.
+- It addresses a real workflow problem for job seekers: handling recruiter outreach, interview logistics, assessments, and sensitive follow-ups without losing context or replying carelessly.
+- It treats inbox automation as a decision-support system, not a generic chatbot, so risky cases are routed to human review instead of being over-automated.
+- It is intentionally local-first and low-cost: SQLite for persistence, Streamlit for the interface, FastAPI for the service layer, and OpenAI as the only paid dependency.
+- It is structured to be practical to extend, audit, and explain because the workflow is explicit, typed, and deterministic where safety matters.
 
 ## Core capabilities
 
@@ -20,7 +20,7 @@ SignalDraft is a polished, local-first AI inbox triage and reply drafting agent 
 - Generate concise draft replies personalized with the saved candidate profile.
 - Flag risky messages for manual review and preserve the reasoning behind that decision.
 - Persist run history and profile data locally in SQLite.
-- Visualize workflow steps in the UI for demos and debugging.
+- Visualize workflow steps in the UI for transparency and debugging.
 
 ## Why LangGraph, LangChain, and LangSmith
 
@@ -134,9 +134,9 @@ SignalDraft escalates to human review when it detects:
 
 It archives low-value spam and low-signal promotional content. It asks for missing info when a response is appropriate but critical details are missing. Otherwise it drafts a reply.
 
-## Demo scenarios
+## Sample scenarios
 
-The Streamlit app includes three one-click demo messages:
+The Streamlit app includes three one-click sample messages:
 
 1. Recruiter outreach
 2. Interview scheduling request with missing details
@@ -176,7 +176,7 @@ Optional but recommended:
 - `LANGSMITH_API_KEY`
 - `LANGSMITH_PROJECT`
 
-If no OpenAI key is set, SignalDraft falls back to deterministic heuristics so the app can still boot, run tests, and demonstrate the product flow locally.
+If no OpenAI key is set, SignalDraft falls back to deterministic heuristics so the app can still boot, run tests, and exercise the workflow locally.
 
 ## Run the backend
 
@@ -235,9 +235,9 @@ This writes a local summary to `outputs/evals/summary.json` and reports:
 ## Design tradeoffs
 
 - SQLite instead of a cloud database keeps setup under 10 minutes and avoids recurring cost.
-- Streamlit keeps the demo lightweight and fast to ship, while FastAPI preserves a clean service boundary.
+- Streamlit keeps the local interface lightweight and fast to iterate on, while FastAPI preserves a clean service boundary.
 - The decision engine is hybrid: LLM-assisted for understanding, deterministic for safety-sensitive routing.
-- Heuristic fallback exists so the app remains usable for local demos and tests even before an API key is configured.
+- Heuristic fallback exists so the app remains usable for local development and tests even before an API key is configured.
 - No email sending integration is included by design to keep the project safe, local, and cheap.
 
 ## Future improvements
@@ -248,8 +248,8 @@ This writes a local summary to `outputs/evals/summary.json` and reports:
 - Add a richer human review queue with side-by-side original message and draft diffing.
 - Add exportable analytics on recruiter response rates and message categories.
 
-## Resume-ready bullets
+## Key design points
 
-- Built a local-first AI inbox triage agent for job seekers using FastAPI, LangGraph, LangChain, Streamlit, and SQLite.
-- Designed a typed multi-step workflow that classifies recruiter and interview emails, extracts structured data, drafts responses, and escalates risky cases for human review.
-- Added LangSmith-ready tracing and a local evaluation harness with seeded datasets covering classification, extraction, routing, and draft quality.
+- Message understanding, routing, drafting, and safety review are separated into explicit workflow steps so each decision is easier to inspect and debug.
+- Human review is treated as a first-class outcome for sensitive situations such as sponsorship, compensation, legal language, and contradictory scheduling details.
+- Local persistence, LangSmith-ready tracing, and a seeded evaluation harness make it practical to test, audit, and extend without adding paid infrastructure.
