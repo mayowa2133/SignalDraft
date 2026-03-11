@@ -1,0 +1,215 @@
+[
+  {
+    "id": "demo_recruiter_outreach",
+    "title": "Demo 1: Recruiter outreach",
+    "message": "Hi Alex,\n\nI'm Jordan Lee from Nimbus AI. We are hiring a Founding AI Engineer in Toronto and your background in LangGraph and product engineering stood out. If you are open to exploring the role, I would love to share more details and talk about the team this week.\n\nBest,\nJordan Lee\nSenior Recruiter\njordan.lee@nimbusai.com",
+    "expected": {
+      "message_type": "recruiter_outreach",
+      "recommended_action": "draft_reply",
+      "needs_human_review": false,
+      "extracted": {
+        "sender_name": "Jordan Lee",
+        "sender_email": "jordan.lee@nimbusai.com",
+        "company": "Nimbus AI",
+        "role_title": "Founding AI Engineer"
+      }
+    }
+  },
+  {
+    "id": "demo_schedule_missing",
+    "title": "Demo 2: Interview scheduling with gaps",
+    "message": "Hello Alex,\n\nThanks for moving forward in our process. We'd like to schedule your next interview sometime next week with one of our engineering managers. Please send over your availability and we'll confirm the details.\n\nRegards,\nPriya",
+    "expected": {
+      "message_type": "scheduling_request",
+      "recommended_action": "ask_for_missing_info",
+      "needs_human_review": false,
+      "extracted": {
+        "sender_name": "Priya",
+        "requested_action": "share availability",
+        "dates_mentioned": [
+          "next week"
+        ]
+      }
+    }
+  },
+  {
+    "id": "demo_sensitive_review",
+    "title": "Demo 3: Compensation and sponsorship review",
+    "message": "Hi Alex,\n\nWe are excited about your profile for the Senior ML Engineer opportunity at Atlas Commerce. Before we move ahead, can you confirm whether you require visa sponsorship and share your compensation expectations for a base salary range of $170,000-$190,000?\n\nThanks,\nMegan Ortiz\nmegan@atlascommerce.com",
+    "expected": {
+      "message_type": "offer_related",
+      "recommended_action": "escalate_human_review",
+      "needs_human_review": true,
+      "extracted": {
+        "company": "Atlas Commerce",
+        "compensation_mentioned": true,
+        "sponsorship_mentioned": true
+      }
+    }
+  },
+  {
+    "id": "coding_assessment_deadline",
+    "title": "Coding assessment with deadline",
+    "message": "Hi Alex,\n\nThanks for applying to Quanta Labs. We'd like you to complete the attached take-home assessment by March 14 at 5 PM ET. Please reply if you have any clarifying questions.\n\nBest,\nShreya Patel\nQuanta Labs",
+    "expected": {
+      "message_type": "coding_assessment",
+      "recommended_action": "draft_reply",
+      "needs_human_review": false,
+      "extracted": {
+        "company": "Quanta Labs",
+        "deadline": "March 14",
+        "timezone": "ET"
+      }
+    }
+  },
+  {
+    "id": "interview_invite_complete",
+    "title": "Interview invite with meeting link",
+    "message": "Hello Alex,\n\nWe'd like to invite you to a 45-minute technical screen for the Backend AI Engineer position at Riverstack on March 18 at 2:00 PM ET. Here is the Zoom link: https://zoom.us/j/123456789. Please confirm if this works for you.\n\nBest regards,\nEthan Wu",
+    "expected": {
+      "message_type": "interview_invite",
+      "recommended_action": "draft_reply",
+      "needs_human_review": false,
+      "extracted": {
+        "role_title": "Backend AI Engineer",
+        "meeting_link_present": true,
+        "timezone": "ET"
+      }
+    }
+  },
+  {
+    "id": "networking_reply_positive",
+    "title": "Networking reply",
+    "message": "Hi Alex,\n\nHappy to connect. Your note about AI product engineering was thoughtful. I'm free for a 20-minute coffee chat on Friday afternoon if that works for you.\n\nBest,\nDaniel Kim",
+    "expected": {
+      "message_type": "networking_reply",
+      "recommended_action": "ask_for_missing_info",
+      "needs_human_review": false,
+      "extracted": {
+        "sender_name": "Daniel Kim",
+        "dates_mentioned": [
+          "Friday"
+        ]
+      }
+    }
+  },
+  {
+    "id": "rejection_notice",
+    "title": "Rejection email",
+    "message": "Hi Alex,\n\nThank you for your time throughout the interview process. After careful consideration, we've decided to move forward with other candidates whose experience more closely aligns with the role.\n\nWe appreciate your interest in Northgate.\n\nSincerely,\nThe Northgate Recruiting Team",
+    "expected": {
+      "message_type": "rejection",
+      "recommended_action": "draft_reply",
+      "needs_human_review": false,
+      "extracted": {
+        "company": "Northgate"
+      }
+    }
+  },
+  {
+    "id": "follow_up_needed",
+    "title": "Recruiter follow-up",
+    "message": "Hi Alex,\n\nJust checking in on the Product Engineer opening we discussed last week at Lantern Cloud. Let me know if you're still interested and I can send over the formal job description.\n\nThanks,\nMia",
+    "expected": {
+      "message_type": "follow_up_needed",
+      "recommended_action": "draft_reply",
+      "needs_human_review": false,
+      "extracted": {
+        "company": "Lantern Cloud"
+      }
+    }
+  },
+  {
+    "id": "offer_with_contract_language",
+    "title": "Offer-related contract note",
+    "message": "Hello Alex,\n\nAttached is the draft offer letter and consulting agreement for the Staff AI Engineer role at Orbital Systems. Please review the terms and conditions carefully and let us know whether you'd like to discuss the equity package.\n\nKind regards,\nLena",
+    "expected": {
+      "message_type": "offer_related",
+      "recommended_action": "escalate_human_review",
+      "needs_human_review": true,
+      "extracted": {
+        "company": "Orbital Systems",
+        "compensation_mentioned": true
+      }
+    }
+  },
+  {
+    "id": "spam_marketing",
+    "title": "Low-value spam",
+    "message": "Grow your LinkedIn audience with our premium outbound package. Book a demo today and unsubscribe anytime.",
+    "expected": {
+      "message_type": "spam_or_low_value",
+      "recommended_action": "archive_no_reply",
+      "needs_human_review": false,
+      "extracted": {}
+    }
+  },
+  {
+    "id": "schedule_with_conflict",
+    "title": "Contradictory schedule options",
+    "message": "Hi Alex,\n\nCould you meet either Tuesday at 10 AM PT, Tuesday at 1 PM ET, or Wednesday at 9 AM? We are coordinating quickly and need to lock this down today.\n\nBest,\nRachel",
+    "expected": {
+      "message_type": "scheduling_request",
+      "recommended_action": "escalate_human_review",
+      "needs_human_review": true,
+      "extracted": {
+        "dates_mentioned": [
+          "Tuesday",
+          "Wednesday"
+        ]
+      }
+    }
+  },
+  {
+    "id": "recruiter_missing_role",
+    "title": "Outreach missing role title",
+    "message": "Hi Alex,\n\nI came across your profile and think you'd be a fit for an opportunity on our AI applications team at MotionGrid. Are you open to learning more this week?\n\nThanks,\nOwen",
+    "expected": {
+      "message_type": "recruiter_outreach",
+      "recommended_action": "ask_for_missing_info",
+      "needs_human_review": false,
+      "extracted": {
+        "company": "MotionGrid"
+      }
+    }
+  },
+  {
+    "id": "interview_invite_unknown_timezone",
+    "title": "Interview invite without timezone",
+    "message": "Hi Alex,\n\nWe'd love to schedule your final round interview for Thursday at 3:30. Please let us know if you can attend and we'll send the panel details.\n\nBest,\nSara",
+    "expected": {
+      "message_type": "interview_invite",
+      "recommended_action": "ask_for_missing_info",
+      "needs_human_review": false,
+      "extracted": {
+        "interview_stage": "final_round",
+        "dates_mentioned": [
+          "Thursday"
+        ]
+      }
+    }
+  },
+  {
+    "id": "assessment_no_deadline",
+    "title": "Assessment missing deadline",
+    "message": "Hello Alex,\n\nThe next step is a short coding challenge in HackerRank. Please complete it when you can and let us know if you have any questions.\n\nRegards,\nTalent Team",
+    "expected": {
+      "message_type": "coding_assessment",
+      "recommended_action": "ask_for_missing_info",
+      "needs_human_review": false,
+      "extracted": {}
+    }
+  },
+  {
+    "id": "unknown_generic_update",
+    "title": "Unknown generic update",
+    "message": "Hi Alex,\n\nWanted to keep you posted that our team is still reviewing applications and we expect to have another update soon.\n\nBest,\nCareers Team",
+    "expected": {
+      "message_type": "unknown",
+      "recommended_action": "draft_reply",
+      "needs_human_review": false,
+      "extracted": {}
+    }
+  }
+]
+
