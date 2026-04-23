@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.db.database import Database
 from app.models.schemas import CandidateProfile, ReviewDecision, RunRecord, RunStatus, RunSummary, RunsResponse
+from app.services.exceptions import InvalidRunTransitionError
 
 
 class CandidateProfileRepository:
@@ -77,6 +78,7 @@ class RunRepository:
         run = self.get(run_id)
         if run is None:
             return None
+        self._validate_review_transition(run)
         timestamp = datetime.utcnow()
         if edited_draft is not None:
             run.draft_reply = edited_draft
@@ -99,12 +101,39 @@ class RunRepository:
         run = self.get(run_id)
         if run is None:
             return None
+        self._validate_mock_send_transition(run)
         if edited_draft is not None:
             run.draft_reply = edited_draft
         run.status = RunStatus.mock_sent
         run.updated_at = datetime.utcnow()
         self.save(run)
         return run
+
+    @staticmethod
+    def _validate_review_transition(run: RunRecord) -> None:
+        if run.recommended_action.value == "archive_no_reply":
+            raise InvalidRunTransitionError(
+                code="review_not_allowed",
+                message="Archived runs cannot be approved or rejected.",
+            )
+        if run.status != RunStatus.analyzed:
+            raise InvalidRunTransitionError(
+                code="invalid_review_transition",
+                message=f"Only analyzed runs can be reviewed. Current status: {run.status.value}.",
+            )
+
+    @staticmethod
+    def _validate_mock_send_transition(run: RunRecord) -> None:
+        if run.recommended_action.value == "archive_no_reply":
+            raise InvalidRunTransitionError(
+                code="mock_send_not_allowed",
+                message="Archived runs cannot be mock sent.",
+            )
+        if run.status != RunStatus.approved:
+            raise InvalidRunTransitionError(
+                code="mock_send_requires_approval",
+                message=f"Only approved runs can be mock sent. Current status: {run.status.value}.",
+            )
 
     @staticmethod
     def _to_summary(run: RunRecord) -> RunSummary:

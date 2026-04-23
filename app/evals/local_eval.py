@@ -53,7 +53,7 @@ class LocalEvaluator:
             profile_repository=profile_repository,
             checkpoint_path=settings.checkpoint_path,
         )
-        analysis_service = AnalysisService(graph, profile_repository, run_repository)
+        analysis_service = AnalysisService(graph, llm_service, profile_repository, run_repository)
 
         examples = [EvaluationExample.model_validate(item) for item in json.loads(self.dataset_path.read_text())]
         results: list[dict[str, Any]] = []

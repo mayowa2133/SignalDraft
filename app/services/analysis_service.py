@@ -7,6 +7,7 @@ from app.db.repositories import CandidateProfileRepository, RunRepository
 from app.graph.builder import SignalDraftGraph
 from app.graph.state import AgentState
 from app.models.schemas import CandidateProfile, MessageType, RunRecord, RunStatus, UrgencyLevel, WorkflowStep
+from app.services.llm_service import LLMService
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -16,10 +17,12 @@ class AnalysisService:
     def __init__(
         self,
         graph: SignalDraftGraph,
+        llm_service: LLMService,
         profile_repository: CandidateProfileRepository,
         run_repository: RunRepository,
     ) -> None:
         self.graph = graph
+        self.llm_service = llm_service
         self.profile_repository = profile_repository
         self.run_repository = run_repository
 
@@ -36,7 +39,8 @@ class AnalysisService:
             "explanation": "",
         }
         result_state = self.graph.invoke(initial_state, run_id=run_id)
-        run = self._state_to_record(result_state)
+        runtime_mode = getattr(self.llm_service, "runtime_mode", "heuristic")
+        run = self._state_to_record(result_state, runtime_mode)
         self.run_repository.save(run)
         logger.info("Completed SignalDraft run %s", run_id)
         return run
@@ -60,7 +64,7 @@ class AnalysisService:
         return self.run_repository.mark_mock_sent(run_id, edited_draft)
 
     @staticmethod
-    def _state_to_record(state: AgentState) -> RunRecord:
+    def _state_to_record(state: AgentState, llm_runtime_mode: str) -> RunRecord:
         now = datetime.utcnow()
         return RunRecord(
             run_id=state["run_id"],
@@ -75,10 +79,10 @@ class AnalysisService:
             needs_human_review=bool(state.get("needs_human_review", False)),
             review_reason=state.get("review_reason", ""),
             explanation=state.get("explanation", ""),
+            llm_runtime_mode=llm_runtime_mode,
             workflow_steps=[WorkflowStep.model_validate(step) for step in state.get("workflow_steps", [])],
             errors=list(state.get("errors", [])),
             status=RunStatus.analyzed,
             created_at=now,
             updated_at=now,
         )
-

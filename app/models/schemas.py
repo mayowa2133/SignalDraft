@@ -144,6 +144,7 @@ class RunRecord(BaseModel):
     needs_human_review: bool
     review_reason: str
     explanation: str
+    llm_runtime_mode: str = "heuristic"
     workflow_steps: list[WorkflowStep] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     status: RunStatus = RunStatus.analyzed
@@ -170,6 +171,16 @@ class RunsResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     environment: str
-    llm_mode: str
-    openai_configured: bool
-    langsmith_project: str
+    backend_auth_enabled: bool
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    environment: str
+    llm_mode_requested: str
+    llm_runtime_mode: str
+    fallback_to_rules: bool
+    openai_key_present: bool
+    backend_auth_enabled: bool
+    db_writable: bool
+    provider_disable_reason: str = ""

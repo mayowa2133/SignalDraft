@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ from app.utils.config import ROOT_DIR as APP_ROOT_DIR, settings
 
 st.set_page_config(page_title="SignalDraft", layout="wide")
 
-API_BASE_URL = settings.api_base_url.rstrip("/")
+API_BASE_URL = settings.resolved_api_base_url
 DATASET_PATH = APP_ROOT_DIR / "data" / "eval_dataset.json"
 
 
@@ -26,52 +27,74 @@ def load_demo_messages() -> list[dict[str, Any]]:
     return items[:3]
 
 
+def get_api_headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if settings.api_token:
+        headers["Authorization"] = f"Bearer {settings.api_token}"
+    return headers
+
+
+def extract_error_message(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return f"Request failed with status {response.status_code}."
+
+    detail = payload.get("detail", payload)
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("code") or response.reason)
+    if isinstance(detail, str):
+        return detail
+    return f"Request failed with status {response.status_code}."
+
+
+def api_request(method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
+    response = requests.request(
+        method=method,
+        url=f"{API_BASE_URL}{path}",
+        json=payload,
+        headers=get_api_headers(),
+        timeout=60,
+    )
+    if response.ok:
+        return response.json()
+    raise RuntimeError(extract_error_message(response))
+
+
 def api_get(path: str) -> Any:
-    response = requests.get(f"{API_BASE_URL}{path}", timeout=30)
-    response.raise_for_status()
-    return response.json()
+    return api_request("GET", path)
 
 
 def api_post(path: str, payload: dict[str, Any]) -> Any:
-    response = requests.post(f"{API_BASE_URL}{path}", json=payload, timeout=60)
-    response.raise_for_status()
-    return response.json()
+    return api_request("POST", path, payload)
 
 
 def api_put(path: str, payload: dict[str, Any]) -> Any:
-    response = requests.put(f"{API_BASE_URL}{path}", json=payload, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    return api_request("PUT", path, payload)
 
 
 def set_current_run(run: dict[str, Any]) -> None:
     st.session_state["current_run"] = run
 
 
-def render_card(title: str, value: str, tone: str = "neutral") -> None:
-    tone_class = f"sd-card {tone}"
-    st.markdown(
-        f"""
-        <div class="{tone_class}">
-            <div class="sd-card-label">{title}</div>
-            <div class="sd-card-value">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def render_metric_card(title: str, value: str) -> None:
+    with st.container(border=True):
+        st.caption(title)
+        st.write(f"**{value}**")
 
 
 def render_extracted_fields(run: dict[str, Any]) -> None:
-    extracted = {key: value for key, value in run.get("extracted", {}).items() if value not in (None, "", [], False)}
+    extracted = {
+        key.replace("_", " ").title(): ", ".join(value) if isinstance(value, list) else str(value)
+        for key, value in run.get("extracted", {}).items()
+        if value not in (None, "", [], False)
+    }
     if not extracted:
         st.info("No structured fields were extracted from this message.")
         return
-    html = "".join(
-        f'<div class="sd-field-row"><span class="sd-field-key">{key.replace("_", " ").title()}</span>'
-        f'<span class="sd-field-value">{", ".join(value) if isinstance(value, list) else value}</span></div>'
-        for key, value in extracted.items()
-    )
-    st.markdown(f'<div class="sd-panel">{html}</div>', unsafe_allow_html=True)
+
+    rows = [{"Field": key, "Value": value} for key, value in extracted.items()]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 def render_workflow_steps(run: dict[str, Any]) -> None:
@@ -79,29 +102,73 @@ def render_workflow_steps(run: dict[str, Any]) -> None:
     if not steps:
         st.caption("No workflow steps recorded yet.")
         return
-    html = ""
+
+    status_copy = {
+        "completed": "Completed",
+        "warning": "Needs review",
+        "skipped": "Skipped",
+    }
     for step in steps:
-        status = step.get("status", "completed")
-        html += (
-            f'<div class="sd-step {status}">'
-            f'<div class="sd-step-name">{step.get("name", "")}</div>'
-            f'<div class="sd-step-summary">{step.get("summary", "")}</div>'
-            f"</div>"
+        with st.container(border=True):
+            st.caption(status_copy.get(step.get("status", "completed"), "Completed"))
+            st.write(f"**{step.get('name', '').replace('_', ' ').title()}**")
+            st.write(step.get("summary", ""))
+
+
+def load_readiness() -> dict[str, Any] | None:
+    try:
+        return api_get("/readiness")
+    except Exception as exc:
+        st.error(f"Could not load backend readiness: {exc}")
+        return None
+
+
+def render_readiness_banner() -> dict[str, Any] | None:
+    readiness = load_readiness()
+    if readiness is None:
+        return None
+
+    if readiness["status"] == "ready":
+        st.success(
+            f"Backend ready. Runtime mode: {readiness['llm_runtime_mode']}. "
+            f"Database writable: {readiness['db_writable']}."
         )
-    st.markdown(f'<div class="sd-steps">{html}</div>', unsafe_allow_html=True)
+    else:
+        st.warning(
+            f"Backend degraded. Runtime mode: {readiness['llm_runtime_mode']}. "
+            f"Reason: {readiness.get('provider_disable_reason') or 'Check readiness details.'}"
+        )
+
+    cols = st.columns(4)
+    readiness_cards = [
+        ("Requested Mode", readiness["llm_mode_requested"]),
+        ("Runtime Mode", readiness["llm_runtime_mode"]),
+        ("DB Writable", str(readiness["db_writable"])),
+        ("API Auth", "enabled" if readiness["backend_auth_enabled"] else "disabled"),
+    ]
+    for idx, (title, value) in enumerate(readiness_cards):
+        with cols[idx]:
+            render_metric_card(title, value)
+
+    return readiness
 
 
 def sidebar_runs() -> None:
     with st.sidebar:
         st.markdown("## Past Runs")
+        if settings.admin_auth_enabled:
+            if st.button("Log Out", use_container_width=True):
+                st.session_state["authenticated"] = False
+                st.rerun()
         try:
             runs = api_get("/runs").get("items", [])
         except Exception as exc:
             st.error(f"Backend unavailable: {exc}")
             runs = []
         for item in runs:
-            label = f"{item['message_type']} • {item['recommended_action']}"
-            if st.button(label, key=f"run-{item['run_id']}", use_container_width=True):
+            label = f"{item['message_type']} · {item['status']}"
+            help_text = f"Action: {item['recommended_action']} | Urgency: {item['urgency']}"
+            if st.button(label, key=f"run-{item['run_id']}", use_container_width=True, help=help_text):
                 selected = api_get(f"/runs/{item['run_id']}")
                 set_current_run(selected)
 
@@ -119,12 +186,24 @@ def profile_editor() -> None:
         university = st.text_input("University", current_profile.university)
         graduation_date = st.text_input("Graduation date", current_profile.graduation_date)
         resume_summary = st.text_area("Resume summary", current_profile.resume_summary, height=120)
-        preferred_tone = st.selectbox("Preferred tone", ["formal", "warm", "concise"], index=["formal", "warm", "concise"].index(current_profile.preferred_tone))
+        preferred_tone = st.selectbox(
+            "Preferred tone",
+            ["formal", "warm", "concise"],
+            index=["formal", "warm", "concise"].index(current_profile.preferred_tone),
+        )
         target_roles = st.text_input("Target roles (comma-separated)", ", ".join(current_profile.target_roles))
         location = st.text_input("Location", current_profile.location)
         sponsorship_status = st.text_input("Sponsorship status", current_profile.sponsorship_status)
-        portfolio_links = st.text_area("Portfolio links (one per line)", "\n".join(current_profile.portfolio_links), height=90)
-        calendar_preferences = st.text_area("Calendar preferences", current_profile.calendar_preferences, height=90)
+        portfolio_links = st.text_area(
+            "Portfolio links (one per line)",
+            "\n".join(current_profile.portfolio_links),
+            height=90,
+        )
+        calendar_preferences = st.text_area(
+            "Calendar preferences",
+            current_profile.calendar_preferences,
+            height=90,
+        )
         default_signoff = st.text_input("Default signoff", current_profile.default_signoff)
         if st.form_submit_button("Save Profile", use_container_width=True):
             payload = {
@@ -148,19 +227,15 @@ def profile_editor() -> None:
                 st.error(f"Could not save profile: {exc}")
 
 
-def analysis_workspace() -> None:
+def analysis_workspace(readiness: dict[str, Any] | None) -> None:
     demos = load_demo_messages()
-    st.markdown(
-        """
-        <div class="sd-hero">
-            <div class="sd-eyebrow">Local-first AI workflow</div>
-            <h1>SignalDraft</h1>
-            <p>Triage recruiter emails, interview updates, and networking replies into safe next actions and polished draft responses.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption("FastAPI + LangGraph + LangChain + LangSmith-ready tracing + SQLite + Streamlit.")
+    st.title("SignalDraft")
+    st.caption("Local-first AI inbox triage for recruiter outreach, interviews, and networking replies.")
+    if readiness is not None:
+        st.caption(
+            f"Active backend mode: `{readiness['llm_runtime_mode']}` | "
+            f"Requested mode: `{readiness['llm_mode_requested']}`"
+        )
 
     demo_cols = st.columns(3)
     for idx, example in enumerate(demos):
@@ -185,6 +260,23 @@ def analysis_workspace() -> None:
                 st.error(f"Analysis failed: {exc}")
 
 
+def action_state_message(run: dict[str, Any]) -> str:
+    recommended_action = run.get("recommended_action", "draft_reply")
+    status = run.get("status", "analyzed")
+
+    if recommended_action == "archive_no_reply":
+        return "This run was archived with no reply. Review and mock-send actions are disabled."
+    if status == "approved":
+        return "This run is approved and can now be mock sent."
+    if status == "rejected":
+        return "This run was rejected and is now locked."
+    if status == "mock_sent":
+        return "This run has already been mock sent."
+    if run.get("needs_human_review"):
+        return "This run requires a manual approval decision before it can be mock sent."
+    return "Approve or reject the draft before any mock send action."
+
+
 def result_view() -> None:
     run = st.session_state.get("current_run")
     if not run:
@@ -199,18 +291,20 @@ def result_view() -> None:
     if run.get("needs_human_review"):
         st.warning(f"Needs human review: {run.get('review_reason') or 'Sensitive content detected.'}")
 
-    metrics = st.columns(4)
-    with metrics[0]:
-        render_card("Category", run.get("message_type", "unknown"), "neutral")
-    with metrics[1]:
-        render_card("Urgency", run.get("urgency", "low"), "accent")
-    with metrics[2]:
-        render_card("Action", run.get("recommended_action", "draft_reply"), "success")
-    with metrics[3]:
-        render_card("Status", run.get("status", "analyzed"), "warning" if run.get("needs_human_review") else "neutral")
+    metrics = st.columns(5)
+    metric_values = [
+        ("Category", run.get("message_type", "unknown")),
+        ("Urgency", run.get("urgency", "low")),
+        ("Action", run.get("recommended_action", "draft_reply")),
+        ("Status", run.get("status", "analyzed")),
+        ("Runtime", run.get("llm_runtime_mode", "heuristic")),
+    ]
+    for idx, (title, value) in enumerate(metric_values):
+        with metrics[idx]:
+            render_metric_card(title, value)
 
     st.markdown("### Why This Decision")
-    st.markdown(f'<div class="sd-panel">{run.get("explanation", "No explanation generated.")}</div>', unsafe_allow_html=True)
+    st.info(run.get("explanation", "No explanation generated."))
 
     left, right = st.columns([1.1, 0.9], gap="large")
     with left:
@@ -220,15 +314,17 @@ def result_view() -> None:
         render_workflow_steps(run)
     with right:
         st.markdown("### Draft Reply")
-        draft_value = st.text_area(
-            "Editable draft",
-            height=280,
-            key="draft_editor",
-        )
-        action_cols = st.columns(3)
+        draft_value = st.text_area("Editable draft", height=280, key="draft_editor")
         notes = st.text_input("Review notes", value=run.get("review_notes", ""))
+
+        status = run.get("status", "analyzed")
+        review_allowed = status == "analyzed" and run.get("recommended_action") != "archive_no_reply"
+        mock_send_allowed = status == "approved" and run.get("recommended_action") != "archive_no_reply"
+
+        st.caption(action_state_message(run))
+        action_cols = st.columns(3)
         with action_cols[0]:
-            if st.button("Approve Draft", use_container_width=True):
+            if st.button("Approve Draft", use_container_width=True, disabled=not review_allowed):
                 try:
                     updated = api_post(
                         f"/runs/{run['run_id']}/review",
@@ -236,10 +332,11 @@ def result_view() -> None:
                     )
                     set_current_run(updated)
                     st.success("Draft approved.")
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"Could not approve draft: {exc}")
         with action_cols[1]:
-            if st.button("Reject Draft", use_container_width=True):
+            if st.button("Reject Draft", use_container_width=True, disabled=not review_allowed):
                 try:
                     updated = api_post(
                         f"/runs/{run['run_id']}/review",
@@ -247,10 +344,11 @@ def result_view() -> None:
                     )
                     set_current_run(updated)
                     st.warning("Draft rejected.")
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"Could not reject draft: {exc}")
         with action_cols[2]:
-            if st.button("Mock Send", use_container_width=True):
+            if st.button("Mock Send", use_container_width=True, disabled=not mock_send_allowed):
                 try:
                     updated = api_post(
                         f"/runs/{run['run_id']}/mock-send",
@@ -258,8 +356,33 @@ def result_view() -> None:
                     )
                     set_current_run(updated)
                     st.success("Mock send recorded.")
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"Could not record mock send: {exc}")
+
+
+def require_login() -> bool:
+    if not settings.admin_auth_enabled:
+        st.warning("SIGNALDRAFT_ADMIN_PASSWORD is not set. UI access is currently open.")
+        st.session_state["authenticated"] = True
+        return True
+
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.title("SignalDraft")
+    st.caption("Enter the shared admin password to access the recruiter demo.")
+    with st.form("login_form"):
+        password = st.text_input("Admin password", type="password")
+        submitted = st.form_submit_button("Unlock Demo", use_container_width=True)
+        if submitted:
+            if hmac.compare_digest(password, settings.admin_password):
+                st.session_state["authenticated"] = True
+                st.success("Access granted.")
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+    return False
 
 
 def inject_styles() -> None:
@@ -273,111 +396,11 @@ def inject_styles() -> None:
                 linear-gradient(180deg, #f7faf9 0%, #f2f5f4 100%);
             color: #16302b;
         }
-        .sd-hero {
-            padding: 1.5rem 1.75rem;
-            border-radius: 24px;
-            background: linear-gradient(135deg, #16302b 0%, #24453e 55%, #2f6f62 100%);
-            color: #f7faf9;
-            box-shadow: 0 18px 40px rgba(22, 48, 43, 0.15);
-            margin-bottom: 0.8rem;
-        }
-        .sd-hero h1 {
-            margin: 0;
-            font-size: 2.4rem;
-            letter-spacing: -0.04em;
-        }
-        .sd-hero p {
-            margin: 0.6rem 0 0;
-            max-width: 680px;
-            font-size: 1rem;
-            color: rgba(247, 250, 249, 0.92);
-        }
-        .sd-eyebrow {
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.16em;
-            opacity: 0.78;
-            margin-bottom: 0.6rem;
-        }
-        .sd-card {
+        div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stMetric"]) {
+            background: white;
+            border: 1px solid rgba(22, 48, 43, 0.08);
             border-radius: 18px;
-            padding: 1rem 1.1rem;
-            background: white;
-            border: 1px solid rgba(22, 48, 43, 0.08);
-            min-height: 110px;
-            box-shadow: 0 10px 22px rgba(16, 39, 35, 0.08);
-        }
-        .sd-card.accent {
-            background: linear-gradient(180deg, #e6f5f1 0%, white 100%);
-        }
-        .sd-card.success {
-            background: linear-gradient(180deg, #eefaf5 0%, white 100%);
-        }
-        .sd-card.warning {
-            background: linear-gradient(180deg, #fff6e8 0%, white 100%);
-        }
-        .sd-card-label {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: #6a7d78;
-            margin-bottom: 0.5rem;
-        }
-        .sd-card-value {
-            font-size: 1.2rem;
-            font-weight: 700;
-            line-height: 1.3;
-            color: #16302b;
-        }
-        .sd-panel {
-            background: white;
-            border-radius: 18px;
-            padding: 1rem 1.1rem;
-            border: 1px solid rgba(22, 48, 43, 0.08);
-            box-shadow: 0 8px 18px rgba(16, 39, 35, 0.06);
-        }
-        .sd-field-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 1rem;
-            padding: 0.6rem 0;
-            border-bottom: 1px solid rgba(22, 48, 43, 0.08);
-        }
-        .sd-field-row:last-child {
-            border-bottom: 0;
-        }
-        .sd-field-key {
-            color: #5e716c;
-            font-size: 0.9rem;
-        }
-        .sd-field-value {
-            color: #16302b;
-            text-align: right;
-            font-weight: 600;
-        }
-        .sd-steps {
-            display: grid;
-            gap: 0.7rem;
-        }
-        .sd-step {
-            padding: 0.95rem 1rem;
-            border-radius: 16px;
-            background: white;
-            border: 1px solid rgba(22, 48, 43, 0.08);
-            box-shadow: 0 8px 18px rgba(16, 39, 35, 0.06);
-        }
-        .sd-step.warning {
-            border-color: rgba(229, 154, 51, 0.35);
-            background: #fff8ed;
-        }
-        .sd-step-name {
-            font-weight: 700;
-            color: #16302b;
-            margin-bottom: 0.3rem;
-        }
-        .sd-step-summary {
-            color: #5e716c;
-            font-size: 0.92rem;
+            padding: 0.4rem;
         }
         </style>
         """,
@@ -387,10 +410,13 @@ def inject_styles() -> None:
 
 def main() -> None:
     inject_styles()
+    if not require_login():
+        return
     sidebar_runs()
+    readiness = render_readiness_banner()
     left, right = st.columns([0.95, 1.05], gap="large")
     with left:
-        analysis_workspace()
+        analysis_workspace(readiness)
         st.divider()
         profile_editor()
     with right:

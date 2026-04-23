@@ -19,6 +19,8 @@ SignalDraft is a local-first AI inbox triage and reply drafting agent for job se
 - Route each message into one of four outcomes: `draft_reply`, `ask_for_missing_info`, `archive_no_reply`, or `escalate_human_review`.
 - Generate concise draft replies personalized with the saved candidate profile.
 - Flag risky messages for manual review and preserve the reasoning behind that decision.
+- Require explicit approval before any mock-send action.
+- Protect hosted demos with a shared admin password in the UI and bearer-token auth on the API.
 - Persist run history and profile data locally in SQLite.
 - Visualize workflow steps in the UI for transparency and debugging.
 
@@ -142,7 +144,7 @@ The Streamlit app includes three one-click sample messages:
 2. Interview scheduling request with missing details
 3. Compensation and sponsorship message that escalates to human review
 
-These live in [data/eval_dataset.json](/Users/mayowaadesanya/Documents/Projects/SignalDraft/data/eval_dataset.json) and are also used by the local evaluation flow.
+These live in [data/eval_dataset.json](data/eval_dataset.json) and are also used by the local evaluation flow.
 
 ## Setup
 
@@ -157,6 +159,7 @@ source .venv/bin/activate
 
 ```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
 ### 3. Configure environment variables
@@ -164,6 +167,11 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 ```
+
+Required for local demo access:
+
+- `SIGNALDRAFT_API_TOKEN`
+- `SIGNALDRAFT_ADMIN_PASSWORD`
 
 Required for OpenAI-powered runs:
 
@@ -176,12 +184,12 @@ Optional but recommended:
 - `LANGSMITH_API_KEY`
 - `LANGSMITH_PROJECT`
 
-If no OpenAI key is set, SignalDraft falls back to deterministic heuristics so the app can still boot, run tests, and exercise the workflow locally.
+If no OpenAI key is set, or if the key fails authentication, SignalDraft degrades to deterministic heuristics so the app can still boot, run tests, and exercise the workflow locally.
 
 ## Run the backend
 
 ```bash
-uvicorn app.main:app --reload
+make dev-api
 ```
 
 FastAPI endpoints:
@@ -194,16 +202,28 @@ FastAPI endpoints:
 - `GET /profile`
 - `PUT /profile`
 - `GET /health`
+- `GET /readiness`
+
+All endpoints except `GET /health` and `GET /readiness` require `Authorization: Bearer <SIGNALDRAFT_API_TOKEN>`.
 
 ## Run the frontend
 
 In another terminal:
 
 ```bash
-streamlit run app/ui/streamlit_app.py
+make dev-ui
 ```
 
-By default the UI calls the backend at `http://127.0.0.1:8000`. Override that with `SIGNALDRAFT_API_BASE_URL` if needed.
+By default the UI calls the backend at `http://127.0.0.1:8000` and forwards `SIGNALDRAFT_API_TOKEN` automatically. Override the backend URL with `SIGNALDRAFT_API_BASE_URL` if needed.
+
+If `SIGNALDRAFT_ADMIN_PASSWORD` is configured, the Streamlit app prompts for the shared demo password before rendering the dashboard.
+
+## Recommended local workflow
+
+```bash
+make test
+make eval
+```
 
 ## Run tests
 
@@ -230,7 +250,9 @@ This writes a local summary to `outputs/evals/summary.json` and reports:
 - Candidate profile data is stored locally in SQLite and automatically seeded on first run.
 - Analysis runs are stored as serialized Pydantic models in SQLite for quick iteration and easy export.
 - LangGraph checkpoints use a SQLite saver when available and fall back to in-memory checkpointing otherwise.
-- The app includes approve, reject, and mock-send actions, but does not integrate with any real email provider.
+- The app includes approve, reject, and mock-send actions, but mock send is only allowed after an approval step.
+- The app does not integrate with any real email provider.
+- Readiness reporting distinguishes between requested LLM mode and actual runtime mode so invalid provider credentials do not appear healthy.
 
 ## Design tradeoffs
 
@@ -247,6 +269,26 @@ This writes a local summary to `outputs/evals/summary.json` and reports:
 - Expand the LangSmith evaluation pipeline with dataset upload and experiment comparison.
 - Add a richer human review queue with side-by-side original message and draft diffing.
 - Add exportable analytics on recruiter response rates and message categories.
+
+## Deployment
+
+This repo now includes:
+
+- [render.yaml](render.yaml) for a two-service Render Blueprint
+- [.github/workflows/ci.yml](.github/workflows/ci.yml) for GitHub Actions CI
+- [Makefile](Makefile) for local commands
+
+The Render Blueprint provisions:
+
+- `signaldraft-api` as the FastAPI service with a persistent disk mounted at `data/`
+- `signaldraft-ui` as the Streamlit service
+- generated shared secrets for the API token and admin password
+
+After creating the Blueprint in Render, set these service secrets before sharing the demo:
+
+- `OPENAI_API_KEY` on the API service if you want live OpenAI responses
+- `SIGNALDRAFT_PUBLIC_UI_URL` on the API service if you want a production browser origin in the CORS allowlist
+- `SIGNALDRAFT_ALLOWED_ORIGINS` on the API service if you want a stricter explicit origin list than the default local-only values
 
 ## Key design points
 

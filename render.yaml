@@ -1,0 +1,70 @@
+services:
+  - type: web
+    name: signaldraft-api
+    runtime: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt && pip install -e .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    disk:
+      name: signaldraft-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: SIGNALDRAFT_ENV
+        value: production
+      - key: SIGNALDRAFT_DB_PATH
+        value: /opt/render/project/src/data/signaldraft.db
+      - key: SIGNALDRAFT_CHECKPOINT_PATH
+        value: /opt/render/project/src/data/signaldraft_checkpoints.db
+      - key: SIGNALDRAFT_API_TOKEN
+        generateValue: true
+      - key: SIGNALDRAFT_ALLOWED_ORIGINS
+        sync: false
+      - key: SIGNALDRAFT_PUBLIC_UI_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+      - key: OPENAI_TEMPERATURE
+        value: "0.2"
+      - key: SIGNALDRAFT_LLM_MODE
+        value: openai
+      - key: SIGNALDRAFT_FALLBACK_TO_RULES
+        value: "true"
+      - key: LANGSMITH_TRACING
+        value: "false"
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        value: SignalDraft
+
+  - type: web
+    name: signaldraft-ui
+    runtime: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt && pip install -e .
+    startCommand: streamlit run app/ui/streamlit_app.py --server.port $PORT --server.address 0.0.0.0
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: SIGNALDRAFT_ENV
+        value: production
+      - key: SIGNALDRAFT_API_BASE_URL
+        fromService:
+          name: signaldraft-api
+          type: web
+          property: hostport
+      - key: SIGNALDRAFT_API_TOKEN
+        fromService:
+          name: signaldraft-api
+          type: web
+          envVarKey: SIGNALDRAFT_API_TOKEN
+      - key: SIGNALDRAFT_ADMIN_PASSWORD
+        generateValue: true

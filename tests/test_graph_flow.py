@@ -24,7 +24,7 @@ def test_graph_routes_to_human_review_for_sensitive_message(tmp_path: Path) -> N
     run_repository = RunRepository(database)
     llm_service = LLMService(settings)
     graph = SignalDraftGraph(llm_service, profile_repository, settings.checkpoint_path)
-    service = AnalysisService(graph, profile_repository, run_repository)
+    service = AnalysisService(graph, llm_service, profile_repository, run_repository)
 
     run = service.analyze_message(
         "Hi Alex, can you confirm whether you need visa sponsorship and your salary expectations?"
@@ -88,8 +88,9 @@ def test_graph_normalizes_sensitive_recruiter_message_to_offer_related(tmp_path:
     database.initialize()
     profile_repository = CandidateProfileRepository(database)
     run_repository = RunRepository(database)
-    graph = SignalDraftGraph(MisclassifyingLLMService(), profile_repository, settings.checkpoint_path)
-    service = AnalysisService(graph, profile_repository, run_repository)
+    llm_service = MisclassifyingLLMService()
+    graph = SignalDraftGraph(llm_service, profile_repository, settings.checkpoint_path)
+    service = AnalysisService(graph, llm_service, profile_repository, run_repository)
 
     run = service.analyze_message(
         "Hi Alex, we are excited about your profile for the Senior ML Engineer opportunity at Atlas Commerce. "

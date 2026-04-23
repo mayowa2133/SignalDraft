@@ -48,6 +48,7 @@ except ImportError:  # pragma: no cover - dependency installed at runtime
 class LLMService:
     settings: Settings
     _model: Any = field(init=False, default=None, repr=False)
+    _provider_disabled_reason: str = field(init=False, default="", repr=False)
 
     def __post_init__(self) -> None:
         if self.settings.llm_mode == "openai" and self.settings.openai_api_key and ChatOpenAI is not None:
@@ -56,10 +57,48 @@ class LLMService:
                 temperature=self.settings.openai_temperature,
                 api_key=self.settings.openai_api_key,
             )
+        elif self.settings.llm_mode == "openai" and not self.settings.openai_api_key:
+            self._provider_disabled_reason = "OpenAI API key is not configured."
+        elif self.settings.llm_mode == "openai" and ChatOpenAI is None:
+            self._provider_disabled_reason = "langchain_openai is not available."
 
     @property
     def model_available(self) -> bool:
         return self._model is not None
+
+    @property
+    def runtime_mode(self) -> str:
+        return self.settings.llm_mode if self.model_available else "heuristic"
+
+    @property
+    def provider_disable_reason(self) -> str:
+        return self._provider_disabled_reason
+
+    def _disable_provider(self, reason: str) -> None:
+        self._model = None
+        self._provider_disabled_reason = reason
+
+    @staticmethod
+    def _is_auth_failure(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        response_status_code = getattr(response, "status_code", None)
+        message = str(exc).lower()
+        return (
+            status_code in {401, 403}
+            or response_status_code in {401, 403}
+            or "incorrect api key" in message
+            or "invalid_api_key" in message
+            or "unauthorized" in message
+            or "authentication" in message
+        )
+
+    def _handle_model_failure(self, stage: str, exc: Exception) -> None:
+        if self._is_auth_failure(exc):
+            self._disable_provider("OpenAI authentication failed. Falling back to heuristic mode.")
+            logger.warning("%s fallback activated after provider authentication failed.", stage)
+            return
+        logger.warning("%s fallback activated due to %s.", stage, type(exc).__name__)
 
     @traceable(name="signaldraft_classification")
     def classify_message(self, message: str) -> ClassificationOutput:
@@ -69,7 +108,7 @@ class LLMService:
             chain = CLASSIFICATION_PROMPT | self._model.with_structured_output(ClassificationOutput)
             return chain.invoke({"message": message})
         except Exception as exc:  # pragma: no cover - network/runtime fallback
-            logger.warning("Classification fallback activated: %s", exc)
+            self._handle_model_failure("Classification", exc)
             if self.settings.fallback_to_rules:
                 return classify_with_rules(message)
             raise
@@ -99,7 +138,7 @@ class LLMService:
                 result.urgency = fallback_classification.urgency
             return result
         except Exception as exc:  # pragma: no cover - network/runtime fallback
-            logger.warning("Extraction fallback activated: %s", exc)
+            self._handle_model_failure("Extraction", exc)
             if self.settings.fallback_to_rules:
                 return extract_with_rules(message, fallback_classification)
             raise
@@ -112,7 +151,7 @@ class LLMService:
             chain = DECISION_PROMPT | self._model.with_structured_output(DecisionOutput)
             return chain.invoke({"message": message, "extracted": extracted})
         except Exception as exc:  # pragma: no cover - network/runtime fallback
-            logger.warning("Decision assist skipped: %s", exc)
+            self._handle_model_failure("Decision assist", exc)
             return None
 
     @traceable(name="signaldraft_draft")
@@ -151,7 +190,7 @@ class LLMService:
                 content = " ".join(str(part) for part in content)
             return str(content).strip() or fallback
         except Exception as exc:  # pragma: no cover - network/runtime fallback
-            logger.warning("Draft fallback activated: %s", exc)
+            self._handle_model_failure("Draft", exc)
             return fallback
 
     @traceable(name="signaldraft_safety_review")
@@ -173,5 +212,5 @@ class LLMService:
                 result.revised_draft = draft_reply
             return result
         except Exception as exc:  # pragma: no cover - network/runtime fallback
-            logger.warning("Safety review fallback activated: %s", exc)
+            self._handle_model_failure("Safety review", exc)
             return fallback

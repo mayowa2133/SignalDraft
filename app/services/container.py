@@ -5,6 +5,7 @@ from app.db.repositories import CandidateProfileRepository, RunRepository
 from app.graph.builder import SignalDraftGraph
 from app.services.analysis_service import AnalysisService
 from app.services.llm_service import LLMService
+from app.models.schemas import ReadinessResponse
 from app.utils.config import settings
 from app.utils.logging import configure_logging
 
@@ -25,6 +26,7 @@ class AppContainer:
         )
         self.analysis_service = AnalysisService(
             graph=self.graph,
+            llm_service=self.llm_service,
             profile_repository=self.profile_repository,
             run_repository=self.run_repository,
         )
@@ -32,6 +34,21 @@ class AppContainer:
     def close(self) -> None:
         self.graph.close()
 
+    def readiness_status(self) -> ReadinessResponse:
+        db_writable = self.database.is_writable()
+        provider_ready = settings.llm_mode != "openai" or self.llm_service.runtime_mode == "openai"
+        status = "ready" if db_writable and provider_ready else "degraded"
+        return ReadinessResponse(
+            status=status,
+            environment=settings.environment,
+            llm_mode_requested=settings.llm_mode,
+            llm_runtime_mode=self.llm_service.runtime_mode,
+            fallback_to_rules=settings.fallback_to_rules,
+            openai_key_present=bool(settings.openai_api_key),
+            backend_auth_enabled=settings.backend_auth_enabled,
+            db_writable=db_writable,
+            provider_disable_reason=self.llm_service.provider_disable_reason,
+        )
+
 
 container = AppContainer()
-
